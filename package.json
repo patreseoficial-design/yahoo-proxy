@@ -1,8 +1,74 @@
 {
-  "name": "statusinvest-proxy",
-  "version": "1.0.0",
-  "dependencies": {
-    "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12"
+  "ticker": "VALE3",
+  "nome": "Vale S.A.",
+  "tipo": "Ação",
+  "bolsa": "B3",
+  "pais": "Brasil",
+  "fonte": "statusinvest",
+  "url": "https://statusinvest.com.br/acoes/vale3",
+
+  "preco": {
+    "atual": 67.23,
+    "moeda": "BRL",
+    "variacaoDia": -0.85,
+    "variacaoDiaPct": -1.25,
+    "min52sem": 60.10,
+    "max52sem": 75.20
+  },
+
+  "indicadores": {
+    "pl": 5.6,
+    "pvp": 1.8,
+    "dy": 12.4,
+    "roe": 23.1,
+    "margemLiquida": 28.7,
+    "ebitda": 182000000000,
+    "dividaLiquidaEbitda": 0.9,
+    "liquidezCorrente": 1.2,
+    "crescimentoReceita5a": 10.5,
+    "crescimentoLucro5a": 12.8
+  },
+
+  "dividendos": {
+    "ultimo": 2.35,
+    "frequencia": "semestral",
+    "historico": [
+      { "data": "2024-09-01", "valor": 2.35 },
+      { "data": "2024-03-01", "valor": 1.90 },
+      { "data": "2023-09-01", "valor": 1.75 }
+    ]
+  },
+
+  "balanco": {
+    "ativoTotal": 500000000000,
+    "passivoTotal": 250000000000,
+    "patrimonioLiquido": 250000000000,
+    "receitaLiquida": 100000000000,
+    "lucroLiquido": 25000000000,
+    "ebitda": 182000000000,
+    "margemBruta": 35.2,
+    "margemLiquida": 28.7,
+    "dividaLiquida": 165000000000
+  },
+
+  "historicoPrecos": [
+    { "data": "2026-02-14", "preco": 66.50 },
+    { "data": "2026-02-13", "preco": 67.00 },
+    { "data": "2026-02-12", "preco": 66.75 }
+  ],
+
+  "empresa": {
+    "setor": "Mineração",
+    "subsetor": "Metais e Mineração",
+    "fundacao": 1942,
+    "descricao": "Uma das maiores mineradoras do mundo...",
+    "ceo": "Eduardo Bartolomeo",
+    "funcionarios": 125000
+  },
+
+  "meta": {
+    "criadoEm": "2026-02-15T16:37:04Z",
+    "atualizadoEm": "2026-02-15T16:37:04Z",
+    "validoAte": "2026-02-20T16:37:04Z"
   }
 }
