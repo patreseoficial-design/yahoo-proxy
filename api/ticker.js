@@ -17,34 +17,37 @@ export default async function handler(req, res) {
 
     const $ = cheerio.load(html);
 
-    // Indicadores via tabela
     function getValue(label) {
       const cell = $("td")
         .filter((i, el) => $(el).text().trim() === label)
         .next();
-      return cell.text().trim();
+      return cell?.text().trim() || null;
+    }
+
+    function parseNumber(value) {
+      if(!value) return null;
+      return parseFloat(value.replace(/\./g, "").replace(",", "."));
     }
 
     const indicadores = {
-      PL: getValue("P/L"),
-      PVP: getValue("P/VP"),
-      PSR: getValue("PSR"),
-      DY: getValue("Dividend Yield"),
-      ROE: getValue("ROE"),
-      LiquidezCorrente: getValue("Liq. Corr."),
-      MargemBruta: getValue("Marg. Bruta"),
-      MargemLiquida: getValue("Marg. Líquida"),
-      PassivoPatrimonio: getValue("Passivo/Patrim."),
-      // outros que achar relevante
+      PL: parseNumber(getValue("P/L")),
+      PVP: parseNumber(getValue("P/VP")),
+      PSR: parseNumber(getValue("PSR")),
+      DY: parseNumber(getValue("Dividend Yield")),
+      ROE: parseNumber(getValue("ROE")),
+      LiquidezCorrente: parseNumber(getValue("Liq. Corr.")),
+      MargemBruta: parseNumber(getValue("Marg. Bruta")),
+      MargemLiquida: parseNumber(getValue("Marg. Líquida")),
+      PassivoPatrimonio: parseNumber(getValue("Passivo/Patrim."))
     };
 
-    // Nome completo da empresa no topo
-    const nome = $("#descricao p:nth-child(1)").text().trim() || ticker;
+    const nome = $("#descricao p:first-child").text().trim() || ticker;
 
     const result = {
       ticker,
       nome,
       fonte: "fundamentus",
+      dataCriacao: new Date().toISOString(),
       indicadores
     };
 
