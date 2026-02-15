@@ -1,7 +1,8 @@
 {
-  "name": "yahoo-proxy",
+  "name": "statusinvest-proxy",
   "version": "1.0.0",
   "dependencies": {
-    "yahoo-finance2": "^2.0.0"
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12"
   }
 }
