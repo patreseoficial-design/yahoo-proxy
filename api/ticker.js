@@ -6,184 +6,166 @@ import cheerio from "cheerio";
 const DATA_DIR = path.join(process.cwd(), "data");
 const CACHE_DAYS = 5;
 
-// Cria pasta de cache se não existir
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 function isExpired(updatedAt) {
-  const diff = (Date.now() - new Date(updatedAt).getTime()) / (1000 * 60 * 60 * 24);
+  const diff =
+    (Date.now() - new Date(updatedAt).getTime()) /
+    (1000 * 60 * 60 * 24);
   return diff >= CACHE_DAYS;
 }
 
-// Lista de User-Agents para reduzir bloqueios
-const userAgents = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-  "Mozilla/5.0 (X11; Linux x86_64)",
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)"
-];
-
-function getRandomUA() {
-  return userAgents[Math.floor(Math.random() * userAgents.length)];
-}
-
-// Buscar HTML da Status Invest
-async function fetchHtml(ticker) {
-  const url = `https://statusinvest.com.br/acoes/${ticker.toLowerCase()}`;
-  const res = await axios.get(url, {
-    headers: {
-      "User-Agent": getRandomUA(),
-      "Accept-Language": "pt-BR",
-      Referer: "https://www.google.com/"
-    },
-    timeout: 15000
-  });
-  return res.data;
-}
-
-// Parse do HTML e extração de dados
-function parseHtml(html, ticker) {
-  let $;
+/* =========================
+   FUNDAMENTUS – INDICADORES
+========================= */
+async function fetchFundamentus(ticker) {
   try {
-    $ = cheerio.load(html);
-  } catch (e) {
-    console.warn("Cheerio não conseguiu carregar HTML:", e.message);
-    $ = null;
-  }
+    const url = `https://www.fundamentus.com.br/detalhes.php?papel=${ticker}`;
+    const { data } = await axios.get(url, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
 
-  // Pegar JSON Nuxt embutido
-  let nuxtData = {};
-  try {
-    if ($) {
-      const nuxtScript = $("script")
-        .filter((i, el) => $(el).html()?.includes("window.__NUXT__"))
-        .html();
+    const $ = cheerio.load(data);
 
-      if (nuxtScript) {
-        const jsonText = nuxtScript.match(/window\.__NUXT__\s*=\s*(\{.*\});/)?.[1];
-        if (jsonText) nuxtData = JSON.parse(jsonText);
-      }
+    function val(label) {
+      const el = $("td")
+        .filter((_, e) => $(e).text().trim() === label)
+        .next();
+      return el.text().replace(",", ".").replace("%", "").trim();
     }
-  } catch (e) {
-    console.warn("Nuxt JSON não pôde ser lido:", e.message);
-    nuxtData = {};
+
+    return {
+      pl: Number(val("P/L")) || null,
+      pvp: Number(val("P/VP")) || null,
+      dy: Number(val("Div. Yield")) || null,
+      roe: Number(val("ROE")) || null,
+      margemLiquida: Number(val("Marg. Líq.")) || null,
+      liquidezCorrente: Number(val("Liq. Corr.")) || null,
+      dividaLiquidaEbitda: Number(val("Dív. Líq./EBITDA")) || null
+    };
+  } catch {
+    return {};
   }
-
-  const company = nuxtData.company || {};
-  const indicators = nuxtData.indicators || {};
-  const balance = nuxtData.balanceSheet || {};
-  const dividends = nuxtData.dividends || [];
-  const historicalPrice = nuxtData.historicalPrice || [];
-
-  const nome = $?.("h1").first().text().trim() || company.name || ticker;
-  const preco = parseFloat(
-    $?.(".value").first().text().replace(/[^\d.,]/g, "").replace(",", ".") || nuxtData.price?.current || 0
-  );
-
-  // Estrutura final do JSON
-  return {
-    ticker,
-    nome,
-    tipo: company.type || "Ação",
-    bolsa: "B3",
-    pais: "Brasil",
-    url: `https://statusinvest.com.br/acoes/${ticker.toLowerCase()}`,
-    preco: {
-      atual: preco,
-      moeda: "BRL",
-      variacaoDia: parseFloat(indicators?.variacaoDia || 0),
-      variacaoDiaPct: parseFloat(indicators?.variacaoDiaPct || 0),
-      min52sem: parseFloat(indicators?.min52sem || 0),
-      max52sem: parseFloat(indicators?.max52sem || 0)
-    },
-    indicadores: {
-      pl: parseFloat(indicators?.pl || 0),
-      pvp: parseFloat(indicators?.pvp || 0),
-      dy: parseFloat(indicators?.dy || 0),
-      roe: parseFloat(indicators?.roe || 0),
-      margemLiquida: parseFloat(indicators?.margemLiquida || 0),
-      ebitda: parseFloat(balance?.ebitda || 0),
-      dividaLiquidaEbitda: parseFloat(balance?.dividaLiquidaEbitda || 0),
-      liquidezCorrente: parseFloat(balance?.liquidezCorrente || 0),
-      crescimentoReceita5a: parseFloat(indicators?.crescimentoReceita5a || 0),
-      crescimentoLucro5a: parseFloat(indicators?.crescimentoLucro5a || 0)
-    },
-    dividendos: dividends.map(d => ({
-      data: d.date || null,
-      valor: parseFloat(d.value || 0)
-    })),
-    balanco: {
-      ativoTotal: parseFloat(balance?.ativoTotal || 0),
-      passivoTotal: parseFloat(balance?.passivoTotal || 0),
-      patrimonioLiquido: parseFloat(balance?.patrimonioLiquido || 0),
-      receitaLiquida: parseFloat(balance?.receitaLiquida || 0),
-      lucroLiquido: parseFloat(balance?.lucroLiquido || 0),
-      ebitda: parseFloat(balance?.ebitda || 0),
-      margemBruta: parseFloat(balance?.margemBruta || 0),
-      margemLiquida: parseFloat(balance?.margemLiquida || 0),
-      dividaLiquida: parseFloat(balance?.dividaLiquida || 0)
-    },
-    historicoPrecos: historicalPrice.map(p => ({
-      data: p.date || null,
-      preco: parseFloat(p.price || 0)
-    })),
-    empresa: {
-      setor: company.sector || "",
-      subsetor: company.subSector || "",
-      fundacao: company.founded || null,
-      descricao: company.description || "",
-      ceo: company.ceo || "",
-      funcionarios: company.employees || 0
-    },
-    fonte: "statusinvest",
-    meta: {
-      criadoEm: new Date().toISOString(),
-      atualizadoEm: new Date().toISOString(),
-      validoAte: new Date(Date.now() + CACHE_DAYS * 24 * 60 * 60 * 1000).toISOString()
-    }
-  };
 }
 
-// Endpoint da API
-export default async function handler(req, res) {
-  const ticker = req.query.ticker?.toUpperCase();
-  if (!ticker) return res.status(400).json({ error: "Ticker obrigatório" });
-
-  const filePath = path.join(DATA_DIR, `${ticker}.json`);
-
-  // Retorna cache se ainda válido
-  if (fs.existsSync(filePath)) {
-    const cached = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-    if (!isExpired(cached.meta.atualizadoEm)) return res.json({ source: "cache", data: cached });
-  }
-
+/* =========================
+   B3 – DIVIDENDOS OFICIAIS
+========================= */
+async function fetchB3Dividends(ticker) {
   try {
-    const html = await fetchHtml(ticker);
-    const parsed = parseHtml(html, ticker);
+    const clean = ticker.replace(/[0-9]/g, "");
+    const url = `https://sistemaswebb3-listados.b3.com.br/fundsPage/main/38065012000177/${clean}/1/events`;
 
-    fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2));
-    return res.json({ source: "scraping", data: parsed });
-  } catch (err) {
-    console.error("Erro ao raspar:", err.message);
-    // Retorna estrutura vazia mesmo com erro
-    return res.json({
-      error: true,
-      message: err.message,
-      data: {
-        ticker,
-        nome: ticker,
-        preco: {},
-        indicadores: {},
-        balanco: {},
-        dividendos: [],
-        historicoPrecos: [],
-        empresa: {},
-        fonte: "statusinvest",
-        meta: {
-          criadoEm: new Date().toISOString(),
-          atualizadoEm: new Date().toISOString(),
-          validoAte: new Date(Date.now() + CACHE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+    const { data } = await axios.get(url, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+
+    const $ = cheerio.load(data);
+    const rows = $("table tr");
+
+    const dividends = [];
+
+    rows.each((i, row) => {
+      const cols = $(row).find("td");
+      if (cols.length >= 6) {
+        const tipo = $(cols[0]).text().trim();
+        if (tipo === "RENDIMENTO" || tipo === "DIVIDENDO") {
+          dividends.push({
+            dataBase: $(cols[6]).text().trim(),
+            dataPagamento: $(cols[3]).text().trim(),
+            valor: Number(
+              $(cols[4]).text().replace(",", ".")
+            )
+          });
         }
       }
     });
+
+    return dividends;
+  } catch {
+    return [];
+  }
+}
+
+/* =========================
+   PREÇO ATUAL (BÁSICO)
+========================= */
+async function fetchPrice(ticker) {
+  try {
+    const url = `https://www.google.com/finance/quote/${ticker}:BVMF`;
+    const { data } = await axios.get(url, {
+      headers: { "User-Agent": "Mozilla/5.0" }
+    });
+
+    const $ = cheerio.load(data);
+    const price = $("div.YMlKec.fxKbKc").first().text();
+
+    return Number(price.replace(",", "."));
+  } catch {
+    return null;
+  }
+}
+
+/* =========================
+   ENDPOINT PRINCIPAL
+========================= */
+export default async function handler(req, res) {
+  const ticker = req.query.ticker?.toUpperCase();
+  if (!ticker)
+    return res.status(400).json({ error: "Ticker obrigatório" });
+
+  const filePath = path.join(DATA_DIR, `${ticker}.json`);
+
+  if (fs.existsSync(filePath)) {
+    const cached = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    if (!isExpired(cached.meta.atualizadoEm)) {
+      return res.json({ source: "cache", data: cached });
+    }
+  }
+
+  try {
+    const indicadores = await fetchFundamentus(ticker);
+    const dividendos = await fetchB3Dividends(ticker);
+    const precoAtual = await fetchPrice(ticker);
+
+    let historico = [];
+    if (fs.existsSync(filePath)) {
+      historico = JSON.parse(fs.readFileSync(filePath)).historicoPrecos || [];
+    }
+
+    const hoje = new Date().toISOString().slice(0, 10);
+    if (precoAtual && !historico.find(h => h.data === hoje)) {
+      historico.push({ data: hoje, preco: precoAtual });
+    }
+
+    const jsonFinal = {
+      ticker,
+      nome: ticker,
+      tipo: "Ação",
+      bolsa: "B3",
+      pais: "Brasil",
+      preco: {
+        atual: precoAtual,
+        moeda: "BRL"
+      },
+      indicadores,
+      dividendos,
+      historicoPrecos: historico,
+      fonte: "fundamentus + b3 + google",
+      meta: {
+        criadoEm: fs.existsSync(filePath)
+          ? JSON.parse(fs.readFileSync(filePath)).meta.criadoEm
+          : new Date().toISOString(),
+        atualizadoEm: new Date().toISOString(),
+        validoAte: new Date(
+          Date.now() + CACHE_DAYS * 86400000
+        ).toISOString()
+      }
+    };
+
+    fs.writeFileSync(filePath, JSON.stringify(jsonFinal, null, 2));
+    res.json({ source: "junta-junta", data: jsonFinal });
+  } catch (e) {
+    res.status(500).json({ error: true, message: e.message });
   }
 }
