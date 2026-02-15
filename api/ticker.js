@@ -1,10 +1,11 @@
 import axios from "axios";
-import { MongoClient } from "mongodb";
 import cheerio from "cheerio";
+import { MongoClient } from "mongodb";
 
-const MONGO_URI = process.env.MONGO_URI; // coloque no Vercel
-const DB_NAME = process.env.DB_NAME || "meudividendo";
-const CACHE_DAYS = 5;
+// CONFIGURAÇÃO MONGO
+const MONGO_URI = "mongodb+srv://ticker_user:Nagila35971812@cluster0.vzrjwja.mongodb.net/stocks?retryWrites=true&w=majority";
+const DB_NAME = "stocks";
+const COLLECTION_NAME = "tickers";
 
 // Lista de User-Agents para reduzir bloqueios
 const userAgents = [
@@ -13,10 +14,12 @@ const userAgents = [
   "Mozilla/5.0 (X11; Linux x86_64)",
   "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)"
 ];
+
 function getRandomUA() {
   return userAgents[Math.floor(Math.random() * userAgents.length)];
 }
 
+// Buscar HTML da Status Invest
 async function fetchHtml(ticker) {
   const url = `https://statusinvest.com.br/acoes/${ticker.toLowerCase()}`;
   const res = await axios.get(url, {
@@ -30,9 +33,14 @@ async function fetchHtml(ticker) {
   return res.data;
 }
 
+// Parse do HTML e extração de dados
 function parseHtml(html, ticker) {
   let $;
-  try { $ = cheerio.load(html); } catch { $ = null; }
+  try {
+    $ = cheerio.load(html);
+  } catch (e) {
+    $ = null;
+  }
 
   let nuxtData = {};
   try {
@@ -40,12 +48,15 @@ function parseHtml(html, ticker) {
       const nuxtScript = $("script")
         .filter((i, el) => $(el).html()?.includes("window.__NUXT__"))
         .html();
+
       if (nuxtScript) {
         const jsonText = nuxtScript.match(/window\.__NUXT__\s*=\s*(\{.*\});/)?.[1];
         if (jsonText) nuxtData = JSON.parse(jsonText);
       }
     }
-  } catch { nuxtData = {}; }
+  } catch (e) {
+    nuxtData = {};
+  }
 
   const company = nuxtData.company || {};
   const indicators = nuxtData.indicators || {};
@@ -54,7 +65,9 @@ function parseHtml(html, ticker) {
   const historicalPrice = nuxtData.historicalPrice || [];
 
   const nome = $?.("h1").first().text().trim() || company.name || ticker;
-  const preco = parseFloat($?.(".value").first().text().replace(/[^\d.,]/g, "").replace(",", ".") || nuxtData.price?.current || 0);
+  const preco = parseFloat(
+    $?.(".value").first().text().replace(/[^\d.,]/g, "").replace(",", ".") || nuxtData.price?.current || 0
+  );
 
   return {
     ticker,
@@ -113,45 +126,38 @@ function parseHtml(html, ticker) {
     fonte: "statusinvest",
     meta: {
       criadoEm: new Date().toISOString(),
-      atualizadoEm: new Date().toISOString(),
-      validoAte: new Date(Date.now() + CACHE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      atualizadoEm: new Date().toISOString()
     }
   };
 }
 
+// Função principal para salvar no MongoDB
 export default async function handler(req, res) {
   const ticker = req.query.ticker?.toUpperCase();
-  if(!ticker) return res.status(400).json({ error: "Ticker obrigatório" });
-
-  const client = new MongoClient(MONGO_URI);
-  await client.connect();
-  const db = client.db(DB_NAME);
-  const collection = db.collection("tickers");
-
-  // Verifica cache
-  const cached = await collection.findOne({ ticker });
-  const now = new Date();
-  if(cached && new Date(cached.meta.atualizadoEm) > now - CACHE_DAYS*24*60*60*1000) {
-    await client.close();
-    return res.json({ source: "cache", data: cached });
-  }
+  if (!ticker) return res.status(400).json({ error: "Ticker obrigatório" });
 
   try {
     const html = await fetchHtml(ticker);
     const parsed = parseHtml(html, ticker);
 
+    // Conecta no Mongo
+    const client = new MongoClient(MONGO_URI);
+    await client.connect();
+    const db = client.db(DB_NAME);
+    const collection = db.collection(COLLECTION_NAME);
+
+    // Upsert: atualiza se existir, cria se não
     await collection.updateOne(
-      { ticker },
+      { ticker: parsed.ticker },
       { $set: parsed },
       { upsert: true }
     );
 
     await client.close();
-    return res.json({ source: "scraping", data: parsed });
 
-  } catch(err) {
-    await client.close();
-    console.error(err);
-    return res.json({ error:true, message: err.message });
+    return res.json({ source: "scraping", data: parsed });
+  } catch (err) {
+    console.error("Erro ao raspar ou salvar MongoDB:", err.message);
+    return res.status(500).json({ error: true, message: err.message });
   }
 }
