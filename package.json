@@ -1,0 +1,7 @@
+{
+  "name": "yahoo-proxy",
+  "version": "1.0.0",
+  "dependencies": {
+    "yahoo-finance2": "^2.0.0"
+  }
+}
