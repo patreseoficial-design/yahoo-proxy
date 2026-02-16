@@ -1,60 +1,80 @@
 import axios from "axios";
 import cheerio from "cheerio";
+import { MongoClient } from "mongodb";
 
-export default async function handler(req, res) {
-  const ticker = req.query.ticker?.toUpperCase();
-  if (!ticker) return res.status(400).json({ error: "Ticker obrigatório" });
+// CONFIGURAÇÃO MONGO
+const MONGO_URI = "mongodb+srv://ticker_user:Nagila35971812@cluster0.vzrjwja.mongodb.net/stocks?retryWrites=true&w=majority";
+const DB_NAME = "stocks";
+const COLLECTION_NAME = "tickers";
 
-  try {
-    const url = `https://www.fundamentus.com.br/detalhes.php?papel=${ticker}`;
+// Buscar HTML do Fundamentus
+async function fetchHtml() {
+  const url = `https://www.fundamentus.com.br/resultado.php`;
+  const res = await axios.get(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      "Accept-Language": "pt-BR"
+    },
+    timeout: 15000
+  });
+  return res.data;
+}
 
-    const { data: html } = await axios.get(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept-Language": "pt-BR"
-      }
+// Parse HTML e extrair tabela
+function parseHtml(html) {
+  const $ = cheerio.load(html);
+  const tickers = [];
+
+  $("#resultado tbody tr").each((i, el) => {
+    const cols = $(el).find("td");
+    if (cols.length < 12) return; // ignorar linhas incompletas
+
+    tickers.push({
+      papel: $(cols[0]).text().trim(),
+      cotacao: parseFloat($(cols[1]).text().replace(".", "").replace(",", ".")) || 0,
+      pl: parseFloat($(cols[2]).text().replace(",", ".")) || 0,
+      pvp: parseFloat($(cols[3]).text().replace(",", ".")) || 0,
+      psr: parseFloat($(cols[4]).text().replace(",", ".")) || 0,
+      dy: parseFloat($(cols[5]).text().replace(",", ".")) || 0,
+      roe: parseFloat($(cols[6]).text().replace(",", ".")) || 0,
+      liquidezCorrente: parseFloat($(cols[7]).text().replace(",", ".")) || 0,
+      margemBruta: parseFloat($(cols[8]).text().replace(",", ".")) || 0,
+      margemLiquida: parseFloat($(cols[9]).text().replace(",", ".")) || 0,
+      passivoPatrimonio: parseFloat($(cols[10]).text().replace(",", ".")) || 0,
+      empresa: $(cols[11]).text().trim()
     });
+  });
 
-    const $ = cheerio.load(html);
+  return tickers;
+}
 
-    function getValue(label) {
-      const cell = $("td")
-        .filter((i, el) => $(el).text().trim() === label)
-        .next();
-      return cell?.text().trim() || null;
-    }
+// Salvar no MongoDB
+async function saveToMongo(tickers) {
+  const client = new MongoClient(MONGO_URI);
+  await client.connect();
+  const db = client.db(DB_NAME);
+  const collection = db.collection(COLLECTION_NAME);
 
-    function parseNumber(value) {
-      if(!value) return null;
-      return parseFloat(value.replace(/\./g, "").replace(",", "."));
-    }
+  for (const ticker of tickers) {
+    await collection.updateOne(
+      { papel: ticker.papel },
+      { $set: ticker },
+      { upsert: true }
+    );
+  }
 
-    const indicadores = {
-      PL: parseNumber(getValue("P/L")),
-      PVP: parseNumber(getValue("P/VP")),
-      PSR: parseNumber(getValue("PSR")),
-      DY: parseNumber(getValue("Dividend Yield")),
-      ROE: parseNumber(getValue("ROE")),
-      LiquidezCorrente: parseNumber(getValue("Liq. Corr.")),
-      MargemBruta: parseNumber(getValue("Marg. Bruta")),
-      MargemLiquida: parseNumber(getValue("Marg. Líquida")),
-      PassivoPatrimonio: parseNumber(getValue("Passivo/Patrim."))
-    };
+  await client.close();
+}
 
-    const nome = $("#descricao p:first-child").text().trim() || ticker;
-
-    const result = {
-      ticker,
-      nome,
-      fonte: "fundamentus",
-      dataCriacao: new Date().toISOString(),
-      indicadores
-    };
-
-    return res.json({ source: "fundamentus", data: result });
-
+// Handler Vercel
+export default async function handler(req, res) {
+  try {
+    const html = await fetchHtml();
+    const tickers = parseHtml(html);
+    await saveToMongo(tickers);
+    res.status(200).json({ success: true, total: tickers.length });
   } catch (err) {
-    console.error("Erro raspando Fundamentus:", err.message);
-    return res.status(500).json({ error: true, message: err.message });
+    console.error("Erro scraping Fundamentus:", err.message);
+    res.status(500).json({ error: true, message: err.message });
   }
 }
